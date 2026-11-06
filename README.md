@@ -48,21 +48,26 @@ komennolla `python3 tools/make_test_ifc.py oma.ifc [--georef]` (vaatii `pip inst
 | Osa | Tiedosto | Kirjastot |
 | --- | --- | --- |
 | IFC-luku, tilat, kerrokset, georeferointi, jalanjälki | `src/ifc.js` | web-ifc, three.js |
-| Kartta + ShadeMap-varjot, mallin rakennukset ShadeMapille | `src/map.js` | maplibre-gl, mapbox-gl-shadow-simulator |
+| Kartta (OpenFreeMap) + ShadeMap-varjot, OSM-rakennukset (Overpass), malli ShadeMapille | `src/map.js` | maplibre-gl, mapbox-gl-shadow-simulator |
 | Muotosovitus kartan rakennuksiin | `src/fit.js` | – |
 | 3D, aurinko, varjot, kävely, auringonpaisteanalyysi | `src/viewer3d.js` | three.js, three-mesh-bvh, suncalc |
 | Projektiot (TM35FIN, GK19–31), geokoodaus | `src/geo.js` | proj4 |
 
+Pohjakartta on OpenFreeMap (avoin, OpenStreetMap-aineisto). Ympäröivät rakennukset haetaan
+OpenStreetMapista Overpass-rajapinnalla kokonaisina polygoneina korkeustietoineen (`height`,
+`building:levels`; ilman tietoa oletus 7 m); jos haku epäonnistuu, käytetään pohjakartan
+rakennustiiliä. Samoja rakennuksia käytetään ShadeMapin varjoihin, muotosovitukseen ja 3D-ympäristöön.
+
 Mallin jalanjälki lasketaan korkeusrasterina (0,5 m), joka yhdistetään suorakaiteiksi ja annetaan
-ShadeMapille lisärakennuksina – kartalla näkyvät siis myös uuden rakennuksen varjot. Kartan
-rakennukset mallin alueella poistetaan (valinta "Korvaa kartan rakennukset"). Samat ShadeMapin
-rakennukset puretaan 3D-näkymään ympäristöksi.
+ShadeMapille lisärakennuksina – kartalla näkyvät siis myös uuden rakennuksen varjot. Malli
+näkyy kartalla punaisena. Kartan rakennukset mallin alueella poistetaan (valinta "Korvaa kartan
+rakennukset").
 
 ## Rajoitukset
 
 - Ajat tulkitaan selaimen aikavyöhykkeessä.
 - ShadeMap ei tue rakennusten alakorkeutta: ulokkeet varjostavat kartalla maahan asti (3D-näkymässä oikein).
 - 3D-näkymän maasto on tasainen; kartan varjoissa maasto on mukana.
-- Ympäröivien rakennusten korkeudet tulevat ShadeMapin/OSM:n aineistosta, ja niiden tarkkuus vaihtelee.
+- Ympäröivien rakennusten korkeudet tulevat OpenStreetMapista, ja niiden tarkkuus vaihtelee (puuttuva korkeus = 7 m).
 - Lasiksi tulkitaan läpinäkyvät pinnat sekä IfcWindow-/IfcPlate-elementit, joissa ei ole läpinäkyvää osaa.
 - ShadeMap-kirjasto on kaupallinen (UNLICENSED, käyttö API-avaimella ShadeMapin ehdoin).

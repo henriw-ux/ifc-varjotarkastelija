@@ -209,6 +209,8 @@ async function loadAndPlace() {
     // 4) Kartta paikalleen ja rakennusmuotojen lataus
     busy('Ladataan karttaa ja ympäröiviä rakennuksia…');
     await flyToModel();
+    busy('Haetaan ympäröiviä rakennuksia (OpenStreetMap)…');
+    await ensureOsmBuildings();
     if (!useGeoref) await runAutoFit({ quiet: true });
     applyPlacement({ reloadSurroundings: true });
     syncSun();
@@ -332,9 +334,16 @@ function isExcluded(f) {
   return ex;
 }
 
+function ensureOsmBuildings() {
+  const [lng, lat] = modelCenterLngLat();
+  const radius = Math.max(250, Number($('env-radius').value) || 300);
+  return mapView.loadOsmBuildings({ lat, lng }, radius);
+}
+
 async function loadSurroundings() {
   if (!state.model) return;
   await mapView.whenIdle();
+  await ensureOsmBuildings();
   const radius = Number($('env-radius').value) || 300;
   const fp = state.model.footprint;
   const [ce, cn] = localToEN(fp.centroid[0], fp.centroid[1]);

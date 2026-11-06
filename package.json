@@ -10,7 +10,6 @@
     "mapbox-gl-shadow-simulator": "^0.68.2",
     "maplibre-gl": "^5.9.0",
     "proj4": "^2.15.0",
-    "protomaps-themes-base": "^4.5.0",
     "suncalc": "^1.9.0",
     "three": "^0.180.0",
     "three-mesh-bvh": "^0.9.1",
