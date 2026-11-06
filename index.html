@@ -1,0 +1,180 @@
+<!doctype html>
+<html lang="fi">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>IFC-varjotarkastelija</title>
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="brand">
+        <span class="logo">☀</span>
+        <strong>IFC-varjotarkastelija</strong>
+        <span class="muted">ShadeMap + tietomalli</span>
+      </div>
+      <div class="seg" id="layout-seg">
+        <button data-layout="map">Kartta</button>
+        <button data-layout="split" class="active">Jaettu</button>
+        <button data-layout="3d">3D</button>
+      </div>
+    </header>
+
+    <div class="app">
+      <aside class="sidebar">
+        <!-- ShadeMap API-avain -->
+        <section class="card key-card" id="sec-key">
+          <h2>
+            <span class="key-icon">🔑</span> ShadeMap API-avain
+            <span class="pill" id="key-pill">Ei avainta</span>
+          </h2>
+          <p class="key-help" id="key-help">
+            Kartan varjot vaativat oman ShadeMap-avaimen. Hae avain osoitteesta
+            <a href="https://shademap.app/about/" target="_blank" rel="noopener">shademap.app/about</a>,
+            liitä se alle ja paina <b>Tallenna avain</b>. Avain tallentuu vain tähän selaimeen.
+          </p>
+          <div class="key-row">
+            <input type="password" id="api-key" placeholder="Liitä API-avain tähän" autocomplete="off" spellcheck="false" />
+            <button type="button" id="btn-key-show" title="Näytä / piilota avain">👁</button>
+          </div>
+          <div class="row">
+            <button type="button" class="primary" id="btn-key-save">Tallenna avain</button>
+            <button type="button" id="btn-key-clear">Poista avain</button>
+          </div>
+        </section>
+
+        <!-- 1. Lähtötiedot -->
+        <section class="card" id="sec-input">
+          <h2><span class="num">1</span> Lähtötiedot</h2>
+          <label class="drop" id="drop">
+            <input type="file" id="ifc-file" accept=".ifc" hidden />
+            <span id="drop-label">Valitse tai pudota <b>.ifc</b>-tiedosto</span>
+          </label>
+          <button type="button" class="link" id="btn-sample">Ei omaa mallia? Käytä esimerkkimallia (2-kerroksinen L-talo)</button>
+          <label class="field">
+            <span>Rakennuspaikan osoite</span>
+            <input type="text" id="address" placeholder="esim. Mannerheimintie 13, Helsinki" />
+          </label>
+          <label class="check"><input type="checkbox" id="use-georef" checked /> Käytä IFC:n omaa georeferointia, jos sellainen löytyy</label>
+          <button class="primary" id="btn-load">Lataa ja sijoita malli</button>
+          <div class="status" id="status"></div>
+        </section>
+
+        <!-- 2. Sijoitus -->
+        <section class="card disabled" id="sec-place">
+          <h2><span class="num">2</span> Sijoitus kartalle</h2>
+          <div class="info" id="place-info"></div>
+          <div class="row">
+            <label class="field"><span>Kierto (° vastapäivään)</span><input type="number" id="rot" step="0.5" /></label>
+            <label class="field"><span>Maanpinta mallissa (m)</span><input type="number" id="ground" step="0.1" /></label>
+          </div>
+          <input type="range" id="rot-range" min="0" max="360" step="0.5" />
+          <div class="row">
+            <label class="field"><span>Siirto itään (m)</span><input type="number" id="off-e" step="0.5" /></label>
+            <label class="field"><span>Siirto pohjoiseen (m)</span><input type="number" id="off-n" step="0.5" /></label>
+          </div>
+          <label class="check"><input type="checkbox" id="drag-mode" /> Siirrä mallia vetämällä kartalla (Shift + veto = kierto)</label>
+          <label class="check"><input type="checkbox" id="replace" checked /> Korvaa kartan rakennukset mallin alueella</label>
+          <div class="row">
+            <button id="btn-fit">Sovita kartan rakennuksiin</button>
+            <button id="btn-reset">Osoitepisteeseen</button>
+          </div>
+        </section>
+
+        <!-- 3. Aika -->
+        <section class="card" id="sec-time">
+          <h2><span class="num">3</span> Ajankohta</h2>
+          <div class="row">
+            <label class="field"><span>Päivä</span><input type="date" id="date" /></label>
+            <label class="field"><span>Kellonaika</span><input type="time" id="time" step="300" /></label>
+          </div>
+          <input type="range" id="time-range" min="0" max="1435" step="5" />
+          <div class="chips">
+            <button data-day="03-20">20.3.</button>
+            <button data-day="06-21">Juhannus</button>
+            <button data-day="09-22">22.9.</button>
+            <button data-day="12-21">21.12.</button>
+            <button id="btn-now">Nyt</button>
+            <button id="btn-play" title="Toista päivän kulku">▶</button>
+          </div>
+          <div class="info" id="sun-info"></div>
+          <label class="check"><input type="checkbox" id="exposure" /> Aurinkotunnit kartalla (koko päivä, ShadeMap)</label>
+          <div class="legend" id="map-legend" hidden></div>
+        </section>
+
+        <!-- 4. Tilat -->
+        <section class="card disabled" id="sec-spaces">
+          <h2><span class="num">4</span> Tilat ja kerrokset</h2>
+          <input type="search" id="space-filter" placeholder="Hae tilaa nimellä tai numerolla…" />
+          <div class="space-list" id="space-list"></div>
+          <div class="row">
+            <label class="field"><span>Tarkastelutaso</span>
+              <select id="an-height">
+                <option value="0.1">Lattia (0,1 m)</option>
+                <option value="0.85">Työtaso (0,85 m)</option>
+              </select>
+            </label>
+            <label class="field"><span>Aika-askel</span>
+              <select id="an-step">
+                <option value="5">5 min</option>
+                <option value="10" selected>10 min</option>
+                <option value="20">20 min</option>
+              </select>
+            </label>
+          </div>
+          <div class="row">
+            <button id="btn-an-one" class="primary">Analysoi valittu tila</button>
+            <button id="btn-an-all">Kaikki tilat</button>
+          </div>
+          <button id="btn-an-clear" class="link">Tyhjennä analyysit</button>
+          <div class="result" id="result"></div>
+          <div class="legend">
+            <div class="grad"></div>
+            <div class="ticks"><span>0 h</span><span>2</span><span>4</span><span>6</span><span>8+ h</span></div>
+            <small>Suoraa auringonpaistetta valittuna päivänä (lasi päästää valon läpi)</small>
+          </div>
+        </section>
+
+        <!-- 5. 3D -->
+        <section class="card" id="sec-3d">
+          <h2><span class="num">5</span> 3D-näkymä</h2>
+          <div class="row">
+            <button id="btn-viewall">Koko malli</button>
+            <button id="btn-mode">Kävelytila</button>
+            <button id="btn-section-off">Poista leikkaus</button>
+          </div>
+          <label class="check"><input type="checkbox" id="show-spaces" /> Näytä tilavolyymit</label>
+          <div class="row">
+            <label class="field"><span>Varjokartta</span>
+              <select id="shadow-q">
+                <option value="2048">2048 (nopea)</option>
+                <option value="4096" selected>4096</option>
+                <option value="8192">8192 (tarkka)</option>
+              </select>
+            </label>
+            <label class="field"><span>Ympäristön säde (m)</span><input type="number" id="env-radius" value="300" step="50" min="50" max="1000" /></label>
+          </div>
+          <p class="help">
+            <b>Ohjaus:</b> Kiertotilassa hiiri pyörittää/zoomaa. Kävelytilassa vedä hiirellä katsoaksesi,
+            <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> liikkuu, <kbd>E</kbd>/<kbd>Q</kbd> ylös/alas, <kbd>Shift</kbd> nopeammin.
+            <b>Tuplaklikkaa lattiaa</b> siirtyäksesi sinne.
+          </p>
+        </section>
+      </aside>
+
+      <main class="panes split" id="panes">
+        <div class="pane" id="map-pane">
+          <div id="map"></div>
+          <div class="pane-label">Kartta · ShadeMap</div>
+          <div class="pane-msg" id="map-msg"></div>
+        </div>
+        <div class="pane" id="viewer-pane">
+          <div id="viewer"></div>
+          <div class="pane-label">3D · <span id="viewer-label">IFC-malli</span></div>
+          <div class="sun-badge" id="sun-badge"></div>
+        </div>
+      </main>
+    </div>
+    <div class="busy" id="busy" hidden><div class="spinner"></div><div id="busy-text"></div></div>
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>
