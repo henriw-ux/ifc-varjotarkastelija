@@ -124,11 +124,24 @@ export class MapView {
     for (const l of map.getStyle().layers) if (l.type === 'fill-extrusion') map.setLayoutProperty(l.id, 'visibility', 'none');
     this.tileSource = Object.entries(map.getStyle().sources).find(([, s]) => s.type === 'vector')?.[0] || 'openmaptiles';
     map.addSource('osm-buildings', { type: 'geojson', data: EMPTY });
+    map.addSource('excluded', { type: 'geojson', data: EMPTY });
     map.addSource('model', { type: 'geojson', data: { type: 'FeatureCollection', features: this.modelFeatures } });
     map.addSource('matched', { type: 'geojson', data: { type: 'FeatureCollection', features: this.matchedFeatures } });
     map.addLayer({
       id: 'osm-buildings-line', source: 'osm-buildings', type: 'line',
       paint: { 'line-color': '#7c746a', 'line-width': 0.6, 'line-opacity': 0.7 },
+    });
+    map.addLayer({
+      id: 'osm-buildings-hit', source: 'osm-buildings', type: 'fill',
+      paint: { 'fill-color': '#000', 'fill-opacity': 0.01 },
+    });
+    map.addLayer({
+      id: 'excluded-fill', source: 'excluded', type: 'fill',
+      paint: { 'fill-color': '#f8f9fa', 'fill-opacity': 0.75 },
+    });
+    map.addLayer({
+      id: 'excluded-line', source: 'excluded', type: 'line',
+      paint: { 'line-color': '#868e96', 'line-width': 1.5, 'line-dasharray': [2, 2] },
     });
     map.addLayer({
       id: 'matched-line', source: 'matched', type: 'line',
@@ -143,6 +156,22 @@ export class MapView {
       paint: { 'line-color': '#a51111', 'line-width': 2 },
     });
     this._setupDrag();
+    map.on('click', 'osm-buildings-hit', (e) => {
+      if (this.dragEnabled) return;
+      if (map.queryRenderedFeatures(e.point, { layers: ['model-fill'] }).length) return;
+      const hit = e.features?.[0];
+      const osmId = hit?.properties?.osm;
+      const f = osmId && this.osm?.features.find((x) => x.properties.osm === osmId);
+      if (f) this.emit('buildingclick', f);
+    });
+    map.on('mouseenter', 'osm-buildings-hit', () => {
+      if (!this.dragEnabled) map.getCanvas().style.cursor = 'pointer';
+    });
+    map.on('mouseleave', 'osm-buildings-hit', () => (map.getCanvas().style.cursor = ''));
+  }
+
+  setExcluded(features) {
+    this.map.getSource('excluded')?.setData({ type: 'FeatureCollection', features: features || [] });
   }
 
   on(evt, fn) {

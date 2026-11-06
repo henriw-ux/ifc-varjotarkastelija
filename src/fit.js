@@ -120,7 +120,10 @@ export function autoFit(model, buildings, pivot, initial) {
 
   // 1) siemenrakennus: osoitepisteen (= initial-siirto) sisältävä tai lähin
   const p0 = [initial.offsetE, initial.offsetN];
-  let seed = buildings.find((b) => pointInPolygon(p0[0], p0[1], b.rings));
+  // osoitepisteen sisältävistä se, jonka pinta-ala on lähimpänä mallin pinta-alaa
+  let seed = buildings
+    .filter((b) => pointInPolygon(p0[0], p0[1], b.rings))
+    .sort((a, b) => Math.abs(Math.log(a.area / modelArea)) - Math.abs(Math.log(b.area / modelArea)))[0];
   if (!seed) {
     let best = Infinity;
     for (const b of buildings) {
@@ -216,5 +219,21 @@ export function coveredFraction(fp, pivot, placement, poly) {
       n++;
       if (coversLocal(fp, pivot, placement, x, y)) inside++;
     }
+  return n ? inside / n : 0;
+}
+
+/** Kuinka suuri osa mallin jalanjäljestä on polygonin sisällä (malli korvaa rakennuksen). */
+export function modelInsideFraction(fp, pivot, placement, poly) {
+  const cells = fp.fitCells?.length ? fp.fitCells : fp.cells;
+  const stride = Math.max(1, Math.floor(cells.length / 800));
+  const [x0, y0, x1, y1] = poly.bbox;
+  let n = 0, inside = 0;
+  for (let i = 0; i < cells.length; i += stride) {
+    const [x, y] = rotate2(cells[i][0] - pivot[0], cells[i][1] - pivot[1], placement.rotation);
+    const e = x + placement.offsetE, nn = y + placement.offsetN;
+    n++;
+    if (e < x0 || e > x1 || nn < y0 || nn > y1) continue;
+    if (pointInPolygon(e, nn, poly.rings)) inside++;
+  }
   return n ? inside / n : 0;
 }

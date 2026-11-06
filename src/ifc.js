@@ -248,11 +248,15 @@ export async function loadIfc(buffer, onProgress = () => {}) {
 
   ifc.CloseModel(modelID);
 
-  // Maanpinnan oletuskorko: ±0 tai alin kerros, jos se on selvästi yläpuolella
-  const groundStorey = storeys.find((s) => s.floorY != null && s.floorY > -1.5);
-  let groundY = 0;
-  if (bbox.min.y > 0.5) groundY = bbox.min.y;
-  else if (groundStorey && Math.abs(groundStorey.floorY) < 1.5) groundY = groundStorey.floorY;
+  // Maanpinnan oletuskorko = 1. kerroksen lattia (nimen perusteella), muuten alin maanpäällinen
+  // kerros, ±0 tai mallin alin kohta
+  const withFloor = storeys.filter((s) => s.floorY != null);
+  const FIRST = /(^|[^\d.])0*1\s*\.?\s*(krs|kerros|vån|vaan)|^\s*0*1\s*$|katutaso|maantaso|pohjakerros|ground\s*floor|^\s*(level|taso|floor)\s*0*1\b|^\s*k\s*0*1\b|\b1st\b|^\s*e\s*0*1\b/i;
+  const BASEMENT = /kellari|basement|parkki|pys[äa]k|maanalai|underground|^\s*-|^\s*k\s*0*0?\s*$|\bb\d|cellar/i;
+  let groundStorey = withFloor.find((s) => FIRST.test(s.name));
+  if (!groundStorey) groundStorey = withFloor.find((s) => !BASEMENT.test(s.name) && Math.abs(s.floorY) < 1.5);
+  if (!groundStorey) groundStorey = withFloor.find((s) => !BASEMENT.test(s.name));
+  let groundY = groundStorey ? groundStorey.floorY : bbox.min.y > 0.5 ? bbox.min.y : 0;
 
   onProgress('Lasketaan rakennuksen jalanjälkeä…');
   await tick();
@@ -268,6 +272,7 @@ export async function loadIfc(buffer, onProgress = () => {}) {
     georef,
     projectOrigin,
     groundY,
+    groundStoreyId: groundStorey?.id ?? null,
     dominantAngle,
     footprint: null, // lasketaan computeFootprint()-funktiolla (riippuu maanpinnan korosta)
   };

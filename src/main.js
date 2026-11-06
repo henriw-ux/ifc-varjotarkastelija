@@ -4,7 +4,7 @@ import { MapView } from './map.js';
 import { Viewer3D, heatColor } from './viewer3d.js';
 import { loadIfc, computeFootprint } from './ifc.js';
 import { geocode, enToLngLat, lngLatToEN, rotate2 } from './geo.js';
-import { autoFit, featuresToLocal, coveredFraction } from './fit.js';
+import { autoFit, featuresToLocal, coveredFraction, modelInsideFraction } from './fit.js';
 
 const $ = (id) => document.getElementById(id);
 const fmtH = (h) => `${h.toFixed(1).replace('.', ',')} h`;
@@ -196,6 +196,9 @@ async function loadAndPlace() {
     // 3) Alkusijoitus
     const groundY = model.groundY;
     model.footprint = computeFootprint(model, groundY);
+    state.groundBase = groundY; // valitun kerroksen lattia (mallin koordinaateissa)
+    state.elev = 0; // käyttäjän nosto/lasku
+    buildGroundSelect(model);
     if (useGeoref) {
       state.anchor = { lat: georef.lat, lng: georef.lng };
       state.placement = {
@@ -282,7 +285,7 @@ async function runAutoFit({ quiet = false } = {}) {
   // lähtöarvaus: mallin painopiste osoitepisteeseen
   const pivot = p.pivot;
   const res = autoFit(model, buildings, pivot, { rotation: p.rotation, offsetE: p.offsetE, offsetN: p.offsetN });
-  if (!res || res.iou < 0.2) {
+  if (!res || res.iou < 0.4) {
     state.fitIoU = null;
     mapView.setMatched([]);
     const msg = buildings.length
@@ -341,9 +344,16 @@ function featureKey(f) {
   return `${c.length}|${c[0][0].toFixed(7)}|${c[0][1].toFixed(7)}`;
 }
 
+const manualExclude = new Map(); // käyttäjän valinta: avain → true (piilota) / false (näytä)
+
+function buildingKey(f) {
+  return f.properties?.osm || featureKey(f);
+}
+
 function isExcluded(f) {
+  const key = buildingKey(f);
+  if (manualExclude.has(key)) return manualExclude.get(key);
   if (!$('replace').checked || !state.model) return false;
-  const key = featureKey(f);
   if (excludeCache.has(key)) return excludeCache.get(key);
   const [poly] = featuresToLocal([f], state.anchor);
   let ex = false;
@@ -352,7 +362,10 @@ function isExcluded(f) {
     const [ce, cn] = localToEN(fp.centroid[0], fp.centroid[1]);
     const r = Math.hypot(fp.nx, fp.ny) * fp.cellSize;
     const bx = (poly.bbox[0] + poly.bbox[2]) / 2, by = (poly.bbox[1] + poly.bbox[3]) / 2;
-    if (Math.hypot(bx - ce, by - cn) < r + 50) ex = coveredFraction(fp, state.placement.pivot, state.placement, poly) > 0.3;
+    if (Math.hypot(bx - ce, by - cn) < r + 50 || (poly.bbox[0] < ce && ce < poly.bbox[2] && poly.bbox[1] < cn && cn < poly.bbox[3]))
+      ex =
+        coveredFraction(fp, state.placement.pivot, state.placement, poly) > 0.3 ||
+        modelInsideFraction(fp, state.placement.pivot, state.placement, poly) > 0.15;
   }
   excludeCache.set(key, ex);
   return ex;
@@ -376,6 +389,7 @@ async function loadSurroundings() {
     .filter((p) => !isExcluded(p.feature))
     .map((p) => ({ rings: p.rings, height: p.feature.properties.height }));
   viewer.setSurroundings(polys);
+  mapView.setExcluded(mapView.getBuildings().filter(isExcluded));
   $('viewer-label').textContent = `IFC-malli + ${polys.length} ympäröivää rakennusta`;
 }
 
@@ -385,7 +399,7 @@ function updatePlaceUI() {
   $('rot-range').value = p.rotation;
   $('off-e').value = p.offsetE.toFixed(2);
   $('off-n').value = p.offsetN.toFixed(2);
-  $('ground').value = p.groundY.toFixed(2);
+  $('elev').value = (state.elev || 0).toFixed(2);
   const [lng, lat] = modelCenterLngLat();
   const warn = $('place-info').dataset.warn;
   $('place-info').innerHTML =
@@ -412,11 +426,52 @@ $('rot-range').addEventListener('input', () => {
   applyPlacement({ live: true });
 });
 $('rot-range').addEventListener('change', onPlaceInput);
-$('ground').addEventListener('change', () => {
+// --- korkeusasema --------------------------------------------------------
+function buildGroundSelect(model) {
+  const sel = $('ground-storey');
+  const opts = model.storeys
+    .filter((s) => s.floorY != null)
+    .map((s) => ({ v: s.floorY, label: `${s.name} – lattia (${s.floorY.toFixed(2)})`, id: s.id }));
+  opts.push({ v: 0, label: 'Mallin ±0,000-taso', id: 'zero' });
+  opts.push({ v: model.bbox.min.y, label: `Mallin alin kohta (${model.bbox.min.y.toFixed(2)})`, id: 'min' });
+  sel.innerHTML = opts.map((o, i) => `<option value="${i}">${o.label}</option>`).join('');
+  sel._opts = opts;
+  const i = opts.findIndex((o) => o.id === model.groundStoreyId);
+  sel.value = String(i >= 0 ? i : Math.max(0, opts.findIndex((o) => Math.abs(o.v - model.groundY) < 1e-6)));
+}
+function setGround() {
   const p = state.placement;
-  p.groundY = Number($('ground').value) || 0;
+  if (!p) return;
+  p.groundY = state.groundBase - (state.elev || 0);
   state.model.footprint = computeFootprint(state.model, p.groundY);
   applyPlacement();
+}
+$('ground-storey').addEventListener('change', (e) => {
+  const o = e.target._opts?.[Number(e.target.value)];
+  if (!o) return;
+  state.groundBase = o.v;
+  state.elev = 0;
+  setGround();
+});
+$('elev').addEventListener('change', () => {
+  state.elev = Number($('elev').value) || 0;
+  setGround();
+});
+$('btn-raise').addEventListener('click', () => {
+  state.elev = Math.round(((state.elev || 0) + 0.5) * 100) / 100;
+  setGround();
+});
+$('btn-lower').addEventListener('click', () => {
+  state.elev = Math.round(((state.elev || 0) - 0.5) * 100) / 100;
+  setGround();
+});
+
+// --- kartan rakennuksen piilotus/palautus klikkaamalla ---------------------
+mapView.on('buildingclick', (f) => {
+  if (!state.model) return;
+  const key = buildingKey(f);
+  manualExclude.set(key, !isExcluded(f));
+  applyPlacement({ reloadSurroundings: true });
 });
 $('replace').addEventListener('change', () => applyPlacement());
 $('drag-mode').addEventListener('change', (e) => (mapView.dragEnabled = e.target.checked));

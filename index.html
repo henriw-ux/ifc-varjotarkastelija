@@ -63,17 +63,23 @@
         <section class="card disabled" id="sec-place">
           <h2><span class="num">2</span> Sijoitus kartalle</h2>
           <div class="info" id="place-info"></div>
-          <div class="row">
-            <label class="field"><span>Kierto (° vastapäivään)</span><input type="number" id="rot" step="0.5" /></label>
-            <label class="field"><span>Maanpinta mallissa (m)</span><input type="number" id="ground" step="0.1" /></label>
-          </div>
+          <label class="field"><span>Kierto (° vastapäivään)</span><input type="number" id="rot" step="0.5" /></label>
           <input type="range" id="rot-range" min="0" max="360" step="0.5" />
+          <label class="field"><span>Korkeusasema: maanpinnan tasolle tulee</span>
+            <select id="ground-storey"></select>
+          </label>
+          <div class="row elev-row">
+            <button type="button" id="btn-lower" title="Laske mallia 0,5 m">▼ Laske</button>
+            <label class="field"><span>Nosto (+) / lasku (−), m</span><input type="number" id="elev" step="0.1" value="0" /></label>
+            <button type="button" id="btn-raise" title="Nosta mallia 0,5 m">▲ Nosta</button>
+          </div>
           <div class="row">
             <label class="field"><span>Siirto itään (m)</span><input type="number" id="off-e" step="0.5" /></label>
             <label class="field"><span>Siirto pohjoiseen (m)</span><input type="number" id="off-n" step="0.5" /></label>
           </div>
           <label class="check"><input type="checkbox" id="drag-mode" /> Siirrä mallia vetämällä kartalla (Shift + veto = kierto)</label>
           <label class="check"><input type="checkbox" id="replace" checked /> Korvaa kartan rakennukset mallin alueella</label>
+          <p class="help" style="margin:0 0 8px">Klikkaa kartalla rakennusta piilottaaksesi sen (tai tuodaksesi takaisin) 3D-näkymästä ja varjoista. Piilotetut näkyvät harmaalla katkoviivalla.</p>
           <div class="row">
             <button id="btn-fit">Sovita kartan rakennuksiin</button>
             <button id="btn-reset">Osoitepisteeseen</button>
