@@ -111,5 +111,12 @@ top = api.run("root.create_entity", f, ifc_class="IfcBuildingStorey", name="Vesi
 api.run("aggregate.assign_object", f, relating_object=building, products=[top])
 box("IfcRoof", "Katto", 0, 0, 2 * H - 0.3, W, D, 0.3, top)
 box("IfcRoof", "Katto siipi", 0, D, 2 * H - 0.3, 10, 10, 0.3, top)
+if "--complex" in sys.argv:
+    # erillinen toinen rakennusosa ja pieniä irtokappaleita (puita), kuten Revit-malleissa
+    st2 = api.run("root.create_entity", f, ifc_class="IfcBuildingStorey", name="B-osa")
+    api.run("aggregate.assign_object", f, relating_object=building, products=[st2])
+    box("IfcSlab", "B-osa massa", 35, 0, 0, 15, 10, 9, st2)
+    for i in range(6):
+        box("IfcBuildingElementProxy", "Puu", -6 + i * 7, -8, 0, 1.2, 1.2, 6, st2)
 f.write(out)
 print("kirjoitettu", out)

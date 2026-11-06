@@ -111,7 +111,10 @@ export function autoFit(model, buildings, pivot, initial) {
   const fp = model.footprint;
   if (!fp || !fp.cells.length || !buildings.length) return null;
   const step = Math.max(1, fp.cellSize);
-  const pts = sampleCells(fp, pivot, step);
+  // sovitukseen vain varsinaiset rakennusmassat (ei pieniä irtokappaleita, kuten puita tai autoja)
+  const cells = fp.fitCells?.length ? fp.fitCells : fp.cells;
+  const pts = sampleCells({ cells }, pivot, step);
+  const ptsCoarse = sampleCells({ cells }, pivot, 2 * step);
   const modelArea = pts.length * step * step;
   const modelRadius = Math.sqrt(modelArea / Math.PI);
 
@@ -125,44 +128,42 @@ export function autoFit(model, buildings, pivot, initial) {
       const d = Math.hypot(c[0] - p0[0], c[1] - p0[1]);
       if (d < best) (best = d), (seed = b);
     }
-    if (best > modelRadius + 40) seed = null;
+    if (best > modelRadius + 60) seed = null;
   }
   if (!seed) return null;
 
-  const run = (targetPolys, startRot, startT, coarse) => {
-    const res = coarse ? step : step / 2;
+  const search = (targetPolys, P, res, rots, centers, range, dstep) => {
     const target = rasterize(targetPolys, res);
-    const cellArea = (res * res) / (step * step);
+    const cellArea = (res * res) / ((P === ptsCoarse ? 2 * step : step) ** 2);
     let best = { iou: -1 };
-    const dm = polyDominantAngle(targetPolys);
-    const base = dm - model.dominantAngle;
-    const rotCandidates = coarse
-      ? [0, 1, 2, 3].flatMap((k) => [-3, -2, -1, 0, 1, 2, 3].map((d) => base + k * 90 + d))
-      : [-1, -0.5, -0.25, 0, 0.25, 0.5, 1].map((d) => startRot + d);
-    if (coarse && startRot != null) rotCandidates.push(startRot);
-    for (const rot of rotCandidates) {
-      // keskitä painopisteet tällä kierrolla
-      let tx0 = startT[0], ty0 = startT[1];
-      if (coarse) {
-        const tc = targetCentroid(targetPolys);
-        const [mx, my] = meanRot(pts, rot);
-        tx0 = tc[0] - mx;
-        ty0 = tc[1] - my;
-      }
-      const range = coarse ? 4 : 0.75, dstep = coarse ? 1 : 0.25;
-      for (let dx = -range; dx <= range + 1e-9; dx += dstep)
-        for (let dy = -range; dy <= range + 1e-9; dy += dstep) {
-          const iou = score(pts, target, rot, tx0 + dx, ty0 + dy, cellArea);
-          if (iou > best.iou) best = { iou, rotation: rot, offsetE: tx0 + dx, offsetN: ty0 + dy };
-        }
-    }
+    for (const rot of rots)
+      for (const [cx, cy] of centers(rot))
+        for (let dx = -range; dx <= range + 1e-9; dx += dstep)
+          for (let dy = -range; dy <= range + 1e-9; dy += dstep) {
+            const iou = score(P, target, rot, cx + dx, cy + dy, cellArea);
+            if (iou > best.iou) best = { iou, rotation: rot, offsetE: cx + dx, offsetN: cy + dy };
+          }
     return best;
   };
 
-  // 2) kohdejoukko: siemen + rakennukset, joiden keskipiste osuu mallin alueelle
+  // 2) laaja haku: kierrot seinälinjojen suuntien perusteella (4 vaihtoehtoa), siirto ±R
+  const base = polyDominantAngle([seed]) - model.dominantAngle;
+  const rots = [0, 1, 2, 3].flatMap((k) => [-2, 0, 2].map((d) => base + k * 90 + d));
+  if (initial.rotation != null) rots.push(initial.rotation);
+  const tc = targetCentroid([seed]);
+  const R = Math.min(60, Math.max(6, Math.ceil(modelRadius)));
+  let result = search([seed], ptsCoarse, 2 * step, rots, (rot) => {
+    const [mx, my] = meanRot(ptsCoarse, rot);
+    return [[tc[0] - mx, tc[1] - my], [tc[0], tc[1]]]; // painopisteet kohdakkain / pivot siemenen keskelle
+  }, R, 2 * step);
+
+  // 3) tarkennus + kohdejoukon laajennus (rakennukset, joiden keskipiste osuu mallin alle)
+  const local = (targets, r) =>
+    search(targets, pts, step, [-2, -1.5, -1, -0.5, 0, 0.5, 1, 1.5, 2].map((d) => r.rotation + d),
+      () => [[r.offsetE, r.offsetN]], 3, 0.5);
   let targets = [seed];
-  let result = run(targets, initial.rotation, [initial.offsetE, initial.offsetN], true);
-  for (let iter = 0; iter < 2; iter++) {
+  result = local(targets, result);
+  for (let iter = 0; iter < 3; iter++) {
     const inside = buildings.filter((b) => {
       if (b === seed) return true;
       const c = polyCentroid(b);
@@ -170,10 +171,10 @@ export function autoFit(model, buildings, pivot, initial) {
     });
     if (inside.length === targets.length) break;
     targets = inside;
-    const r2 = run(targets, result.rotation, [result.offsetE, result.offsetN], true);
-    if (r2.iou >= result.iou * 0.98) result = r2;
+    result = local(targets, result);
   }
-  const fine = run(targets, result.rotation, [result.offsetE, result.offsetN], false);
+  const fine = search(targets, pts, step / 2, [-0.5, -0.25, 0, 0.25, 0.5].map((d) => result.rotation + d),
+    () => [[result.offsetE, result.offsetN]], 0.75, 0.25);
   if (fine.iou >= result.iou) result = fine;
   result.rotation = ((result.rotation % 360) + 360) % 360;
   result.matched = targets.map((t) => t.feature);

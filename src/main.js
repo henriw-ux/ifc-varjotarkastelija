@@ -163,7 +163,10 @@ async function loadAndPlace() {
     }
     const model = state.model;
     const georef = model.georef;
-    const useGeoref = $('use-georef').checked && georef.lat != null;
+    let useGeoref = $('use-georef').checked && georef.lat != null;
+    let georefNote = '';
+    // Revitin oletussijainti (Boston) päätyy IFC:hen, jos projektin sijaintia ei ole asetettu
+    const isDefaultLocation = georef.lat != null && distanceKm(georef, { lat: 42.3584, lng: -71.0598 }) < 30;
 
     // 2) Osoite
     let addressPoint = null;
@@ -176,6 +179,19 @@ async function loadAndPlace() {
       throw new Error('Anna rakennuspaikan osoite (mallissa ei ole käytettävää georeferointia).');
     }
     state.addressPoint = addressPoint;
+    if (useGeoref && addressPoint) {
+      const d = distanceKm(georef, addressPoint);
+      if (d > 1) {
+        useGeoref = false;
+        georefNote = `IFC:n oma sijaintitieto (${georef.lat.toFixed(4)}, ${georef.lng.toFixed(4)}${
+          isDefaultLocation ? ', Revitin oletussijainti Boston' : ''
+        }) on ${d < 100 ? d.toFixed(1) : Math.round(d)} km päässä osoitteesta – käytetään osoitetta.`;
+      }
+    } else if (useGeoref && isDefaultLocation) {
+      throw new Error(
+        'IFC:n sijaintitieto on Revitin oletussijainti (Boston), eli mallia ei ole georeferoitu. Anna rakennuspaikan osoite.'
+      );
+    }
 
     // 3) Alkusijoitus
     const groundY = model.groundY;
@@ -217,7 +233,8 @@ async function loadAndPlace() {
     viewer.viewAll();
     status(
       `${model.name || state.file?.name || 'Malli'}: ${model.spaces.length} tilaa, ${model.storeys.length} kerrosta.` +
-        (addressPoint ? `\nOsoite: ${addressPoint.label}` : '')
+        (addressPoint ? `\nOsoite: ${addressPoint.label}` : '') +
+        (georefNote ? `\n${georefNote}` : '')
     );
   } catch (err) {
     console.error(err);
@@ -248,9 +265,15 @@ function localToEN(mx, my, p = state.placement) {
 
 const norm360 = (a) => ((a % 360) + 360) % 360;
 
+function distanceKm(a, b) {
+  const k = Math.cos((a.lat * Math.PI) / 180);
+  return Math.hypot((a.lng - b.lng) * 111.32 * k, (a.lat - b.lat) * 110.574);
+}
+
 async function runAutoFit({ quiet = false } = {}) {
   const model = state.model;
   await mapView.whenIdle();
+  await ensureOsmBuildings(); // rakennukset juuri tältä alueelta
   const radius = Math.max(150, Math.hypot(model.bbox.max.x - model.bbox.min.x, model.bbox.max.z - model.bbox.min.z));
   const buildings = featuresToLocal(mapView.getBuildings(), state.anchor).filter(
     (b) => Math.hypot((b.bbox[0] + b.bbox[2]) / 2, (b.bbox[1] + b.bbox[3]) / 2) < radius
@@ -306,6 +329,7 @@ function applyPlacement({ reloadSurroundings = false, live = false } = {}) {
     state.model.spaces.forEach(updateBadge);
   }
   updatePlaceUI();
+  syncSun(); // aurinko lasketaan aina mallin todelliselle sijainnille
   mapView.refreshShadows();
   clearTimeout(surroundTimer);
   surroundTimer = setTimeout(loadSurroundings, reloadSurroundings ? 0 : 500);
@@ -403,7 +427,7 @@ $('btn-fit').addEventListener('click', async () => {
   if (ok) applyPlacement();
   busy(null);
 });
-$('btn-reset').addEventListener('click', () => {
+$('btn-reset').addEventListener('click', async () => {
   if (!state.addressPoint) return status('Osoitetta ei ole annettu.', true);
   const p = state.placement;
   state.anchor = { lat: state.addressPoint.lat, lng: state.addressPoint.lng };
@@ -411,8 +435,15 @@ $('btn-reset').addEventListener('click', () => {
   state.placementSource = 'Osoitepiste';
   state.fitIoU = null;
   mapView.setMatched([]);
-  applyPlacement();
-  flyToModel();
+  busy('Siirretään malli osoitteeseen ja sovitetaan kartan rakennuksiin…');
+  try {
+    await flyToModel();
+    await runAutoFit({ quiet: true });
+    applyPlacement({ reloadSurroundings: true });
+    viewer.viewAll();
+  } finally {
+    busy(null);
+  }
 });
 
 // vetäminen kartalla

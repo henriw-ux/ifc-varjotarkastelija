@@ -57,6 +57,11 @@ export async function loadIfc(buffer, onProgress = () => {}) {
     if (!typeCache.has(id)) typeCache.set(id, ifc.GetLineType(modelID, id));
     return typeCache.get(id);
   };
+  // ympäristöobjektit (puut, autot, kalusteet): näkyvät ja varjostavat 3D:ssä, mutta eivät kuulu
+  // rakennuksen jalanjälkeen (ShadeMap, sovitus)
+  const contextTypes = new Set(
+    [WebIFC.IFCFURNISHINGELEMENT, WebIFC.IFCFURNITURE, WebIFC.IFCSYSTEMFURNITUREELEMENT, WebIFC.IFCGEOGRAPHICELEMENT, WebIFC.IFCVIRTUALELEMENT, WebIFC.IFCANNOTATION].filter(Boolean)
+  );
   const glazingTypes = new Set([WebIFC.IFCWINDOW, WebIFC.IFCPLATE, WebIFC.IFCCURTAINWALL].filter(Boolean));
 
   // --- Geometrian virtaus -----------------------------------------------
@@ -92,6 +97,7 @@ export async function loadIfc(buffer, onProgress = () => {}) {
     streamed.add(id);
     const isSpace = spaceIds.has(id);
     const isSite = siteIds.has(id);
+    const isContext = contextTypes.has(typeOf(id));
     const type = typeOf(id);
     const geoms = mesh.geometries;
     // Ikkuna/lasielementti ilman läpinäkyvää osaa (moni ohjelma vie lasin läpinäkymättömänä):
@@ -114,7 +120,7 @@ export async function loadIfc(buffer, onProgress = () => {}) {
         const c = pg.color;
         const opacity = forceGlass ? 0.35 : c.w;
         const transparent = opacity < 0.98;
-        const kind = isSite ? 'site' : transparent ? 'glass' : 'opaque';
+        const kind = isSite ? 'site' : isContext && !transparent ? 'context' : transparent ? 'glass' : 'opaque';
         const key = `${kind}|${c.x.toFixed(2)}|${c.y.toFixed(2)}|${c.z.toFixed(2)}|${opacity.toFixed(2)}`;
         if (!buckets.has(key))
           buckets.set(key, { pos: [], nrm: [], idx: [], color: [c.x, c.y, c.z], opacity, kind });
@@ -230,7 +236,7 @@ export async function loadIfc(buffer, onProgress = () => {}) {
   const projectOrigin = new THREE.Vector3(0, 0, 0).applyMatrix4(coord);
 
   const bbox = new THREE.Box3();
-  for (const m of meshes) if (m.userData.kind !== 'site') bbox.union(m.geometry.boundingBox);
+  for (const m of meshes) if (m.userData.kind === 'opaque' || m.userData.kind === 'glass') bbox.union(m.geometry.boundingBox);
   if (bbox.isEmpty()) for (const m of meshes) bbox.union(m.geometry.boundingBox);
 
   const projectName = (() => {
@@ -399,7 +405,7 @@ export function computeFootprint(model, groundY, cellSize = 0.5) {
   };
   const A = new THREE.Vector3(), B = new THREE.Vector3(), C = new THREE.Vector3();
   for (const m of model.meshes) {
-    if (m.userData.kind === 'site') continue;
+    if (m.userData.kind === 'site' || m.userData.kind === 'context') continue;
     const pos = m.geometry.attributes.position.array;
     const idx = m.geometry.index.array;
     for (let t = 0; t < idx.length; t += 3) {
@@ -487,11 +493,40 @@ export function computeFootprint(model, groundY, cellSize = 0.5) {
     y1: maxMy - r.j0 * cs, y0: maxMy - (r.j1 + 1) * cs,
     height: r.h,
   }));
+  // yhtenäiset alueet (8-naapurusto); sovitukseen vain merkittävät rakennusmassat
+  const comp = new Int32Array(nx * ny).fill(-1);
+  const sizes = [];
+  const stack = [];
+  for (let k0 = 0; k0 < Q.length; k0++) {
+    if (!Q[k0] || comp[k0] >= 0) continue;
+    const id = sizes.length;
+    let n = 0;
+    stack.push(k0);
+    comp[k0] = id;
+    while (stack.length) {
+      const k = stack.pop();
+      n++;
+      const i = k % nx, j = (k / nx) | 0;
+      for (let dj = -1; dj <= 1; dj++)
+        for (let di = -1; di <= 1; di++) {
+          const ii = i + di, jj = j + dj;
+          if (ii < 0 || jj < 0 || ii >= nx || jj >= ny) continue;
+          const kk = jj * nx + ii;
+          if (Q[kk] && comp[kk] < 0) (comp[kk] = id), stack.push(kk);
+        }
+    }
+    sizes.push(n);
+  }
+  const minCells = Math.max(30 / (cs * cs), 0.03 * sizes.reduce((a, b) => Math.max(a, b), 0));
+  const fitCells = [];
+  for (let k = 0; k < Q.length; k++)
+    if (Q[k] && sizes[comp[k]] >= minCells) fitCells.push([minX + ((k % nx) + 0.5) * cs, maxMy - (((k / nx) | 0) + 0.5) * cs]);
+
   let cx = 0, cy = 0;
   for (const [x, y] of cells) (cx += x), (cy += y);
   const centroid = cells.length ? [cx / cells.length, cy / cells.length] : [(bb.min.x + bb.max.x) / 2, -(bb.min.z + bb.max.z) / 2];
   return {
-    cellSize: cs, nx, ny, minX, maxMy, heights: Q, cells, rectangles, maxHeight: maxH, centroid,
+    cellSize: cs, nx, ny, minX, maxMy, heights: Q, cells, fitCells, rectangles, maxHeight: maxH, centroid,
     occupied(mx, my) {
       const k = cellOf(mx, my);
       return k >= 0 && Q[k] > 0;
