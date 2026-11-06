@@ -68,6 +68,7 @@ rakennukset").
 - Ajat tulkitaan selaimen aikavyöhykkeessä.
 - ShadeMap ei tue rakennusten alakorkeutta: ulokkeet varjostavat kartalla maahan asti (3D-näkymässä oikein).
 - 3D-näkymän maasto on tasainen; kartan varjoissa maasto on mukana.
-- Ympäröivien rakennusten korkeudet tulevat OpenStreetMapista, ja niiden tarkkuus vaihtelee (puuttuva korkeus = 7 m).
+- Ympäröivien rakennusten korkeudet tulevat OpenStreetMapista. Puuttuva korkeus korvataan oletuksella (12 m, pienet rakennustyypit 4 m; muutettavissa), ja nämä näkyvät 3D:ssä sinertävinä.
+- IFC:n oma maastomalli (IfcSite) on oletuksena piilossa, koska sen korko poikkeaa usein kartan maanpinnasta; sen voi näyttää ja valita korkeusasemaksi.
 - Lasiksi tulkitaan läpinäkyvät pinnat sekä IfcWindow-/IfcPlate-elementit, joissa ei ole läpinäkyvää osaa.
 - ShadeMap-kirjasto on kaupallinen (UNLICENSED, käyttö API-avaimella ShadeMapin ehdoin).

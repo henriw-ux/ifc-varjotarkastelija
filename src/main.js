@@ -159,6 +159,8 @@ async function loadAndPlace() {
       state.model = model;
       state.results.clear();
       viewer.setModel(model);
+      // IFC:n maastomalli on usein eri korossa kuin kartan maanpinta → oletuksena piilossa
+      viewer.setSiteVisible($('show-site').checked);
       buildSpaceList();
     }
     const model = state.model;
@@ -237,7 +239,11 @@ async function loadAndPlace() {
     status(
       `${model.name || state.file?.name || 'Malli'}: ${model.spaces.length} tilaa, ${model.storeys.length} kerrosta.` +
         (addressPoint ? `\nOsoite: ${addressPoint.label}` : '') +
-        (georefNote ? `\n${georefNote}` : '')
+        (georefNote ? `\n${georefNote}` : '') +
+        `\nMaanpinnan tasona: ${$('ground-storey').selectedOptions[0]?.text || '–'}` +
+        (model.siteGroundY != null && Math.abs(model.siteGroundY - model.groundY) > 0.8
+          ? `\nHuom: IFC:n oma maastopinta on ${(model.siteGroundY - model.groundY).toFixed(1).replace('.', ',')} m tästä tasosta – sen voi valita korkeusasemaksi.`
+          : '')
     );
   } catch (err) {
     console.error(err);
@@ -387,10 +393,12 @@ async function loadSurroundings() {
   const polys = featuresToLocal(mapView.getBuildings(), state.anchor)
     .filter((p) => Math.hypot((p.bbox[0] + p.bbox[2]) / 2 - ce, (p.bbox[1] + p.bbox[3]) / 2 - cn) < radius)
     .filter((p) => !isExcluded(p.feature))
-    .map((p) => ({ rings: p.rings, height: p.feature.properties.height }));
+    .map((p) => ({ rings: p.rings, height: p.feature.properties.height, estimated: !!p.feature.properties.estimated }));
   viewer.setSurroundings(polys);
   mapView.setExcluded(mapView.getBuildings().filter(isExcluded));
-  $('viewer-label').textContent = `IFC-malli + ${polys.length} ympäröivää rakennusta`;
+  const est = polys.filter((p) => p.estimated).length;
+  $('viewer-label').textContent =
+    `IFC-malli + ${polys.length} ympäröivää rakennusta` + (est ? ` (${est}:n korkeus arvioitu)` : '');
 }
 
 function updatePlaceUI() {
@@ -432,6 +440,8 @@ function buildGroundSelect(model) {
   const opts = model.storeys
     .filter((s) => s.floorY != null)
     .map((s) => ({ v: s.floorY, label: `${s.name} – lattia (${s.floorY.toFixed(2)})`, id: s.id }));
+  if (model.siteGroundY != null)
+    opts.push({ v: model.siteGroundY, label: `IFC:n maastopinta rakennuksen ympärillä (${model.siteGroundY.toFixed(2)})`, id: 'site' });
   opts.push({ v: 0, label: 'Mallin ±0,000-taso', id: 'zero' });
   opts.push({ v: model.bbox.min.y, label: `Mallin alin kohta (${model.bbox.min.y.toFixed(2)})`, id: 'min' });
   sel.innerHTML = opts.map((o, i) => `<option value="${i}">${o.label}</option>`).join('');
@@ -764,6 +774,12 @@ $('btn-viewall').addEventListener('click', () => viewer.viewAll());
 $('btn-mode').addEventListener('click', () => viewer.setMode(viewer.mode === 'walk' ? 'orbit' : 'walk'));
 $('btn-section-off').addEventListener('click', () => viewer.setSectionHeight(null));
 $('show-spaces').addEventListener('change', (e) => viewer.showSpaces(e.target.checked));
+$('show-site').addEventListener('change', (e) => viewer.setSiteVisible(e.target.checked));
+$('default-height').addEventListener('change', (e) => {
+  const h = Math.max(2, Number(e.target.value) || 12);
+  mapView.setDefaultHeight(h);
+  loadSurroundings();
+});
 $('shadow-q').addEventListener('change', (e) => viewer.setShadowQuality(Number(e.target.value)));
 $('env-radius').addEventListener('change', () => loadSurroundings());
 

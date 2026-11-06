@@ -258,6 +258,35 @@ export async function loadIfc(buffer, onProgress = () => {}) {
   if (!groundStorey) groundStorey = withFloor.find((s) => !BASEMENT.test(s.name));
   let groundY = groundStorey ? groundStorey.floorY : bbox.min.y > 0.5 ? bbox.min.y : 0;
 
+  // IFC:n maastopinnan korko rakennuksen ympärillä: pystysäteet maastomalliin 3 m rakennuksen
+  // ulkopuolelta, ylin osuma, mediaani
+  let siteGroundY = null;
+  {
+    const siteMeshes = meshes.filter((m) => m.userData.kind === 'site');
+    if (siteMeshes.length && !bbox.isEmpty()) {
+      const tmpMat = new THREE.MeshBasicMaterial({ side: THREE.DoubleSide });
+      const probes = siteMeshes.map((m) => new THREE.Mesh(m.geometry, tmpMat));
+      const rc = new THREE.Raycaster();
+      const down = new THREE.Vector3(0, -1, 0);
+      const top = bbox.max.y + 200;
+      const ys = [];
+      const x0 = bbox.min.x - 3, x1 = bbox.max.x + 3, z0 = bbox.min.z - 3, z1 = bbox.max.z + 3;
+      for (let i = 0; i <= 8; i++) {
+        const t = i / 8;
+        for (const [x, z] of [[x0 + (x1 - x0) * t, z0], [x0 + (x1 - x0) * t, z1], [x0, z0 + (z1 - z0) * t], [x1, z0 + (z1 - z0) * t]]) {
+          rc.set(new THREE.Vector3(x, top, z), down);
+          const hit = rc.intersectObjects(probes, false)[0];
+          if (hit) ys.push(hit.point.y);
+        }
+      }
+      if (ys.length >= 4) {
+        ys.sort((a, b) => a - b);
+        siteGroundY = ys[Math.floor(ys.length / 2)];
+      }
+    }
+  }
+  const hasSite = meshes.some((m) => m.userData.kind === 'site');
+
   onProgress('Lasketaan rakennuksen jalanjälkeä…');
   await tick();
   const dominantAngle = computeDominantAngle(meshes);
@@ -273,6 +302,8 @@ export async function loadIfc(buffer, onProgress = () => {}) {
     projectOrigin,
     groundY,
     groundStoreyId: groundStorey?.id ?? null,
+    siteGroundY,
+    hasSite,
     dominantAngle,
     footprint: null, // lasketaan computeFootprint()-funktiolla (riippuu maanpinnan korosta)
   };

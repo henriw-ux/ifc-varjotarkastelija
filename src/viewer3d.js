@@ -181,6 +181,13 @@ export class Viewer3D {
   /** @param polys [{rings:[[ [e,n],... ]], height}] paikallisissa ENU-koordinaateissa */
   setSurroundings(polys) {
     this.surroundings.clear();
+    // mitattu korkeus = vaalea, arvioitu (oletus) = sinertävä
+    this._addSurroundingMesh(polys.filter((p) => !p.estimated), '#d8d2c6');
+    this._addSurroundingMesh(polys.filter((p) => p.estimated), '#b9c6d3');
+    this.invalidateOccluders();
+  }
+
+  _addSurroundingMesh(polys, color) {
     const geoms = [];
     for (const p of polys) {
       const outer = p.rings[0];
@@ -203,12 +210,18 @@ export class Viewer3D {
       merged.computeVertexNormals();
       const mesh = new THREE.Mesh(
         merged,
-        new THREE.MeshLambertMaterial({ color: '#d8d2c6', side: THREE.DoubleSide })
+        new THREE.MeshLambertMaterial({ color, side: THREE.DoubleSide })
       );
       mesh.castShadow = mesh.receiveShadow = true;
       mesh.customDepthMaterial = this.depthMat;
       this.surroundings.add(mesh);
     }
+  }
+
+  /** IFC:n maastomalli (IfcSite) näkyviin / pois; piilotettu maasto ei myöskään varjosta. */
+  setSiteVisible(v) {
+    if (!this.model) return;
+    for (const m of this.model.meshes) if (m.userData.kind === 'site') m.visible = v;
     this.invalidateOccluders();
   }
 
@@ -460,7 +473,7 @@ export class Viewer3D {
       g.applyMatrix4(mesh.matrixWorld);
       geoms.push(g.index ? g : g);
     };
-    if (this.model) for (const m of this.model.meshes) if (m.userData.kind !== 'glass') add(m);
+    if (this.model) for (const m of this.model.meshes) if (m.userData.kind !== 'glass' && m.visible) add(m);
     this.surroundings.traverse((o) => o.isMesh && add(o));
     if (!geoms.length) return null;
     const indexed = geoms.map((g) => (g.index ? g : (() => {

@@ -13,17 +13,27 @@ const STYLE_URL = 'https://tiles.openfreemap.org/styles/liberty';
 const OVERPASS = ['https://overpass-api.de/api/interpreter', 'https://overpass.kumi.systems/api/interpreter'];
 const MODEL_RED = '#e03131';
 
-/** Korkeus metreinä vektoritiilen (OpenMapTiles) tai OSM-tagien perusteella. */
-export function buildingHeight(props) {
-  const num = (v) => {
-    const n = parseFloat(String(v ?? '').replace(',', '.'));
-    return isFinite(n) && n > 0 ? n : 0;
-  };
-  const h = num(props.render_height) || num(props.height);
+// Oletuskorkeudet rakennuksille, joilta korkeustieto puuttuu (käyttäjä voi muuttaa)
+export const heightDefaults = { general: 12, small: 4 };
+const SMALL_TYPES =
+  /^(house|detached|semidetached_house|bungalow|garage|garages|shed|hut|cabin|carport|roof|kiosk|sauna|outbuilding|farm_auxiliary|greenhouse|service|bunker|toilets|allotment_house|boathouse|barn|stable)$/;
+const num = (v) => {
+  const n = parseFloat(String(v ?? '').replace(',', '.'));
+  return isFinite(n) && n > 0 ? n : 0;
+};
+
+/** Mitattu korkeus metreinä OSM-tageista tai vektoritiilestä; 0, jos tietoa ei ole. */
+function measuredHeight(props) {
+  const h = num(props.height) || num(props.render_height);
   if (h) return h;
   const lv = num(props['building:levels']) || num(props.levels);
   if (lv) return lv * 3.2 + (num(props['roof:levels']) ? num(props['roof:levels']) * 2.5 : 0);
-  return 7; // oletus, kun korkeustietoa ei ole
+  return 0;
+}
+
+/** Korkeus metreinä; puuttuva tieto korvataan oletuksella (pienille rakennustyypeille matalampi). */
+export function buildingHeight(props) {
+  return measuredHeight(props) || (SMALL_TYPES.test(props.building || '') ? heightDefaults.small : heightDefaults.general);
 }
 
 /** Odottaa, että kartan tiilet on ladattu (kuten ShadeMapin MapLibre-esimerkissä). */
@@ -66,7 +76,11 @@ async function fetchOsmBuildings(lat, lng, radius) {
       };
       const out = [];
       for (const el of json.elements || []) {
-        const props = { ...el.tags, height: buildingHeight(el.tags || {}), osm: `${el.type}/${el.id}` };
+        const tags = el.tags || {};
+        const props = {
+          building: tags.building, name: tags.name, osm: `${el.type}/${el.id}`, _tags: tags,
+          height: buildingHeight(tags), estimated: !measuredHeight(tags),
+        };
         if (el.type === 'way' && el.geometry) {
           const r = ring(el.geometry);
           if (r) out.push({ type: 'Feature', id: el.id, geometry: { type: 'Polygon', coordinates: [r] }, properties: props });
@@ -170,6 +184,13 @@ export class MapView {
     map.on('mouseleave', 'osm-buildings-hit', () => (map.getCanvas().style.cursor = ''));
   }
 
+  /** Muuttaa puuttuvan korkeuden oletusta ja laskee OSM-rakennusten korkeudet uudelleen. */
+  setDefaultHeight(h) {
+    heightDefaults.general = h;
+    for (const f of this.osm?.features || []) f.properties.height = buildingHeight(f.properties._tags || {});
+    this.refreshShadows();
+  }
+
   setExcluded(features) {
     this.map.getSource('excluded')?.setData({ type: 'FeatureCollection', features: features || [] });
   }
@@ -222,7 +243,13 @@ export class MapView {
       const key = `${f.id ?? ''}|${c.length}|${c[0][0].toFixed(7)}|${c[0][1].toFixed(7)}`;
       if (seen.has(key)) continue;
       seen.add(key);
-      out.push({ type: 'Feature', geometry: g, properties: { height: buildingHeight(f.properties || {}) } });
+      const pr = f.properties || {};
+      // OpenMapTiles: render_height on aina olemassa; korkeustieto puuttuu, jos sitä ei ole erikseen
+      const measured = num(pr.height) || num(pr.levels) ? measuredHeight(pr) : 0;
+      out.push({
+        type: 'Feature', geometry: g,
+        properties: { height: measured || heightDefaults.general, estimated: !measured },
+      });
     }
     return out;
   }

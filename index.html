@@ -149,6 +149,12 @@
             <button id="btn-section-off">Poista leikkaus</button>
           </div>
           <label class="check"><input type="checkbox" id="show-spaces" /> Näytä tilavolyymit</label>
+          <label class="check"><input type="checkbox" id="show-site" /> Näytä IFC:n oma maastomalli (IfcSite)</label>
+          <label class="field"><span>Ympäröivien rakennusten korkeus, kun OSM:ssä ei ole tietoa (m)</span>
+            <input type="number" id="default-height" value="12" step="1" min="2" max="100" />
+          </label>
+          <p class="help" style="margin:0 0 6px"><span class="swatch" style="background:#d8d2c6"></span> korkeus OSM:stä
+            &nbsp; <span class="swatch" style="background:#b9c6d3"></span> arvioitu korkeus (oletus)</p>
           <div class="row">
             <label class="field"><span>Varjokartta</span>
               <select id="shadow-q">

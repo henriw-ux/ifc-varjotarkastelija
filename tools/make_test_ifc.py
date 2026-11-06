@@ -118,5 +118,11 @@ if "--complex" in sys.argv:
     box("IfcSlab", "B-osa massa", 35, 0, 0, 15, 10, 9, st2)
     for i in range(6):
         box("IfcBuildingElementProxy", "Puu", -6 + i * 7, -8, 0, 1.2, 1.2, 6, st2)
+if "--site" in sys.argv:
+    # maastomalli (IfcSite), jonka pinta on 1,2 m 1. kerroksen lattian yläpuolella
+    rep = api.run("geometry.add_wall_representation", f, context=body, length=100, height=1.2, thickness=100)
+    api.run("geometry.assign_representation", f, product=site, representation=rep)
+    place(site, -40, -40, -1.2 + 1.2 - 1.2)
+    site.ObjectPlacement.RelativePlacement.Location.Coordinates = (-40.0, -40.0, 0.0)
 f.write(out)
 print("kirjoitettu", out)
